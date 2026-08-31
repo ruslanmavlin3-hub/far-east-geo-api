@@ -3,14 +3,23 @@ from pydantic import BaseModel
 from typing import List
 import math
 import requests
+import time
 
 app = FastAPI(
     title="Far East Land Geo API",
     description="Geo API for searching and checking land areas in the Russian Far East",
-    version="2.0.0"
+    version="2.1.0"
 )
 
-OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.nchc.org.tw/api/interpreter",
+]
+
+REQUEST_HEADERS = {
+    "User-Agent": "FarEastLandGeoAPI/2.1"
+}
 
 
 class ContourRequest(BaseModel):
@@ -19,7 +28,6 @@ class ContourRequest(BaseModel):
 
 
 def haversine(lat1, lon1, lat2, lon2):
-    """Distance between two points in kilometers."""
     r = 6371.0
 
     phi1 = math.radians(lat1)
@@ -39,28 +47,43 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def overpass_request(query):
-    """Send query to OpenStreetMap Overpass API."""
+    errors = []
 
-    try:
-        response = requests.post(
-            OVERPASS_URL,
-            data={"data": query},
-            timeout=30
-        )
+    for url in OVERPASS_URLS:
+        try:
+            response = requests.post(
+                url,
+                data={"data": query},
+                headers=REQUEST_HEADERS,
+                timeout=40
+            )
 
-        response.raise_for_status()
-        return response.json()
+            if response.status_code == 200:
+                data = response.json()
+                data["_source_url"] = url
+                return data
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Overpass API error: {str(e)}"
-        )
+            errors.append(
+                f"{url}: HTTP {response.status_code}"
+            )
+
+        except Exception as e:
+            errors.append(
+                f"{url}: {type(e).__name__}: {str(e)}"
+            )
+
+        time.sleep(1)
+
+    raise HTTPException(
+        status_code=502,
+        detail={
+            "message": "All Overpass API endpoints failed",
+            "errors": errors
+        }
+    )
 
 
 def element_location(element):
-    """Get approximate latitude and longitude of an OSM element."""
-
     if "lat" in element and "lon" in element:
         return element["lat"], element["lon"]
 
@@ -73,8 +96,6 @@ def element_location(element):
 
 
 def normalize_element(element, lat, lon):
-    """Convert OSM element to compact infrastructure result."""
-
     tags = element.get("tags", {})
 
     obj_lat, obj_lon = element_location(element)
@@ -103,7 +124,7 @@ def root():
     return {
         "status": "ok",
         "service": "far-east-geo-api",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "geo_source": "OpenStreetMap / Overpass API"
     }
 
@@ -113,7 +134,7 @@ def health():
     return {
         "status": "ok",
         "service": "far-east-geo-api",
-        "version": "2.0.0"
+        "version": "2.1.0"
     }
 
 
@@ -136,7 +157,6 @@ def nearby_infrastructure(
     lon: float = Query(..., ge=-180, le=180),
     radius_km: float = Query(10, gt=0, le=50)
 ):
-
     radius_m = int(radius_km * 1000)
 
     query = f"""
@@ -166,7 +186,6 @@ def nearby_infrastructure(
     }
 
     for element in data.get("elements", []):
-
         tags = element.get("tags", {})
 
         item = normalize_element(
@@ -204,6 +223,7 @@ def nearby_infrastructure(
     return {
         "status": "ok",
         "source": "OpenStreetMap / Overpass API",
+        "source_endpoint": data.get("_source_url"),
         "lat": lat,
         "lon": lon,
         "radius_km": radius_km,
@@ -239,7 +259,6 @@ def search_area(
 
 @app.post("/check-contour")
 def check_contour(data: ContourRequest):
-
     coordinates = data.coordinates
 
     if not coordinates or not coordinates[0]:

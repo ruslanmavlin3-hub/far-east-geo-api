@@ -1,0 +1,112 @@
+openapi: 3.1.0
+
+info:
+  title: Far East Land Geo API
+  description: >
+    API for geographic analysis of land areas in the Russian Far East,
+    including point checks, infrastructure searches, candidate-area searches,
+    and preliminary contour checks.
+  version: 1.0.0
+
+servers:
+  - url: https://far-east-geo-api.onrender.com
+
+paths:
+
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Check Geo API status
+      responses:
+        "200":
+          description: API is running
+
+  /check-point:
+    get:
+      operationId: checkPoint
+      summary: Check a geographic point
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Geographic point information
+
+  /nearby-infrastructure:
+    get:
+      operationId: nearbyInfrastructure
+      summary: Find infrastructure near a geographic point
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+        - name: radius_km
+          in: query
+          required: false
+          schema:
+            type: number
+            default: 10
+      responses:
+        "200":
+          description: Nearby infrastructure
+
+  /search-area:
+    get:
+      operationId: searchArea
+      summary: Search for candidate land areas
+      parameters:
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: center
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: radius_km
+          in: query
+          required: false
+          schema:
+            type: number
+            default: 20
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            type: string
+            default: warehouse
+      responses:
+        "200":
+          description: Candidate search areas
+
+  /check-contour:
+    post:
+      operationId: checkContour
+      summary: Check a proposed land parcel contour
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Preliminary contour check result

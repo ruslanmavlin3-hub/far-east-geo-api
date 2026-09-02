@@ -411,6 +411,161 @@ def clamp(value, low, high):
 
 
 # ============================================================
+# NSPD PRELIMINARY MAP ADAPTER
+# ============================================================
+
+NSPD_REFERER = "https://nspd.gov.ru/map"
+
+NSPD_HEADERS = {
+    "User-Agent": "Mozilla/5.0 FarEastGeoAPI/3.0",
+    "Referer": NSPD_REFERER,
+    "Accept": "application/json,text/plain,*/*"
+}
+
+
+def wgs84_to_web_mercator(lat: float, lon: float):
+    """
+    Convert WGS84 coordinates to EPSG:3857.
+    """
+
+    import math
+
+    x = lon * 20037508.34 / 180.0
+
+    lat = max(min(lat, 89.5), -89.5)
+
+    y = math.log(
+        math.tan(
+            (90.0 + lat) * math.pi / 360.0
+        )
+    ) / (math.pi / 180.0)
+
+    y = y * 20037508.34 / 180.0
+
+    return x, y
+
+
+def nspd_get_feature_info(
+    lat: float,
+    lon: float,
+    layer_id: str,
+    size_meters: float = 100,
+    feature_count: int = 20
+):
+    """
+    Preliminary GetFeatureInfo request to a public NSPD map layer.
+
+    This is a map-layer query, not a legally significant EGRN statement.
+    """
+
+    x, y = wgs84_to_web_mercator(lat, lon)
+
+    half = max(size_meters / 2.0, 1.0)
+
+    bbox = (
+        f"{x-half},{y-half},"
+        f"{x+half},{y+half}"
+    )
+
+    url = (
+        f"https://nspd.gov.ru/api/aeggis/v3/"
+        f"{layer_id}/wms"
+    )
+
+    params = {
+        "SERVICE": "WMS",
+        "VERSION": "1.3.0",
+        "REQUEST": "GetFeatureInfo",
+        "LAYERS": str(layer_id),
+        "QUERY_LAYERS": str(layer_id),
+        "CRS": "EPSG:3857",
+        "BBOX": bbox,
+        "WIDTH": 800,
+        "HEIGHT": 800,
+        "I": 400,
+        "J": 400,
+        "INFO_FORMAT": "application/json",
+        "STYLES": "",
+        "FORMAT": "image/png",
+        "FEATURE_COUNT": feature_count
+    }
+
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers=NSPD_HEADERS,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            return {
+                "status": "source_error",
+                "http_status": response.status_code,
+                "features": [],
+                "source": url,
+                "error": response.text[:300]
+            }
+
+        try:
+            data = response.json()
+        except Exception:
+            return {
+                "status": "invalid_response",
+                "features": [],
+                "source": url,
+                "error": response.text[:300]
+            }
+
+        features = data.get("features", [])
+
+        return {
+            "status": "checked",
+            "features": features,
+            "source": url
+        }
+
+    except Exception as exc:
+        return {
+            "status": "source_error",
+            "features": [],
+            "source": url,
+            "error": (
+                f"{type(exc).__name__}: "
+                f"{str(exc)[:250]}"
+            )
+        }
+
+
+def extract_nspd_objects(features):
+    """
+    Normalize useful cadastral attributes from NSPD GeoJSON features.
+    """
+
+    objects = []
+
+    for feature in features:
+        props = feature.get("properties", {}) or {}
+        options = props.get("options", {}) or {}
+
+        cadastral_number = (
+            options.get("cad_num")
+            or options.get("cad_number")
+            or props.get("descr")
+            or props.get("name")
+        )
+
+        objects.append({
+            "cadastral_number": cadastral_number,
+            "feature_id": feature.get("id"),
+            "geometry_type": (
+                feature.get("geometry", {}) or {}
+            ).get("type"),
+            "properties": props
+        })
+
+    return objects
+# ============================================================
 # 1. HEALTH
 # ============================================================
 

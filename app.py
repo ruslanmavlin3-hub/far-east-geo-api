@@ -17,7 +17,6 @@ OVERPASS_URLS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
 ]
-]
 
 REQUEST_HEADERS = {
     "User-Agent": "FarEastLandGeoAPI/2.1"

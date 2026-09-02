@@ -352,3 +352,38 @@ def check_contour(data: ContourRequest):
             "that the land is available."
         )
     }
+
+@app.get("/land-check")
+def land_check(
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180)
+):
+    return {
+        "status": "preliminary",
+        "lat": lat,
+        "lon": lon,
+        "cadastral": {
+            "status": "not_connected",
+            "objects": []
+        },
+        "restrictions": {
+            "status": "not_connected",
+            "items": []
+        },
+        "zouit": {
+            "status": "not_connected",
+            "items": []
+        },
+        "public_servitudes": {
+            "status": "not_connected",
+            "items": []
+        },
+        "fis_119fz": {
+            "status": "manual_check_required"
+        },
+        "message": (
+            "Land-check endpoint is active. "
+            "Cadastral, NSPD and FIS data sources will be connected separately. "
+            "Do not treat this result as confirmation that the land is available."
+        )
+    }

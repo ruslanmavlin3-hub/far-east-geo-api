@@ -3,10 +3,12 @@ openapi: 3.1.0
 info:
   title: Far East Land Geo API
   description: >
-    Geographic, infrastructure, cadastral-preparation and investment
-    analysis API for searching and checking territories under the
-    Far East / Arctic hectare workflow.
-  version: 3.0.0
+    Геопространственный API для поиска и предварительной проверки
+    территорий по программе Дальневосточный и Арктический гектар.
+    Поддерживает геокодирование, инфраструктурный анализ,
+    предварительную проверку данных НСПД, земельных ограничений,
+    контуров, поиск перспективных территорий и инвестиционный скоринг.
+  version: 3.1.0
 
 servers:
   - url: https://far-east-geo-api.onrender.com
@@ -16,10 +18,13 @@ paths:
   /health:
     get:
       operationId: healthCheck
-      summary: Check Geo API health
+      summary: Проверить работу Far East Land Geo API
+      description: >
+        Возвращает состояние сервиса, его версию и признак
+        стабильности контракта.
       responses:
         "200":
-          description: Service status
+          description: Сервис работает
           content:
             application/json:
               schema:
@@ -29,27 +34,34 @@ paths:
   /check-point:
     get:
       operationId: checkPoint
-      summary: Validate a geographic point
+      summary: Проверить координаты точки
+      description: >
+        Проверяет корректность координат и доступность базового
+        географического запроса.
       parameters:
         - name: lat
           in: query
           required: true
+          description: Широта WGS84
           schema:
             type: number
+            format: double
             minimum: -90
             maximum: 90
 
         - name: lon
           in: query
           required: true
+          description: Долгота WGS84
           schema:
             type: number
+            format: double
             minimum: -180
             maximum: 180
 
       responses:
         "200":
-          description: Point result
+          description: Результат проверки точки
           content:
             application/json:
               schema:
@@ -59,17 +71,23 @@ paths:
   /geocode:
     get:
       operationId: geocodePlace
-      summary: Convert a Russian place name to coordinates
+      summary: Найти координаты населённого пункта или территории
+      description: >
+        Геокодирует название города, посёлка, района или другой
+        географической территории и возвращает возможные координаты.
       parameters:
         - name: place
           in: query
           required: true
+          description: >
+            Название места, например Благовещенск или Амурская область
           schema:
             type: string
+            minLength: 2
 
       responses:
         "200":
-          description: Geocoding result
+          description: Результаты геокодирования
           content:
             application/json:
               schema:
@@ -79,39 +97,56 @@ paths:
   /nearby-infrastructure:
     get:
       operationId: nearbyInfrastructure
-      summary: Find infrastructure near coordinates
+      summary: Проверить инфраструктуру вокруг точки
       description: >
-        Searches nearby major roads, settlements, railways,
-        industrial areas and power infrastructure.
+        Ищет доступные сведения об автомобильных дорогах,
+        населённых пунктах, железной дороге, промышленных территориях
+        и электросетевой инфраструктуре вокруг заданной точки.
+        Результат является предварительным инфраструктурным анализом
+        и сам по себе не подтверждает юридическую доступность земли.
       parameters:
         - name: lat
           in: query
           required: true
+          description: Широта WGS84
           schema:
             type: number
+            format: double
             minimum: -90
             maximum: 90
 
         - name: lon
           in: query
           required: true
+          description: Долгота WGS84
           schema:
             type: number
+            format: double
             minimum: -180
             maximum: 180
 
         - name: radius_km
           in: query
           required: false
+          description: Радиус поиска инфраструктуры в километрах
           schema:
             type: number
-            default: 5
+            format: double
             minimum: 0.2
             maximum: 25
+            default: 5
 
       responses:
         "200":
-          description: Infrastructure result
+          description: Инфраструктура вокруг точки
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+        "502":
+          description: Все внешние инфраструктурные источники недоступны
           content:
             application/json:
               schema:
@@ -121,31 +156,49 @@ paths:
   /land-check:
     get:
       operationId: landCheck
-      summary: Preliminary legal and cadastral land check
+      summary: Проверить земельно-кадастровый контекст точки
       description: >
-        Returns the permanent structure for cadastral, NSPD,
-        FIS 119-FZ, ZOUIT, public servitude, forest, water,
-        protected-area, heritage and zoning checks.
+        Выполняет предварительную земельную проверку координаты.
+        Может проверять доступные слои НСПД: земельные участки ЕГРН,
+        кадастровые кварталы, участки, образуемые по схеме,
+        участки или территории, отображаемые как свободные от прав
+        третьих лиц, и аукционные участки.
+
+        Если источник НСПД недоступен, результат source_error
+        означает техническую недоступность источника и НЕ означает
+        отсутствие земельных участков.
+
+        Отсутствие объекта в картографическом слое также не является
+        подтверждением свободной земли или возможности её получения
+        по Федеральному закону 119-ФЗ.
+
+        Юридическую доступность участка считать подтверждённой только
+        тогда, когда API прямо возвращает соответствующее подтверждение.
       parameters:
         - name: lat
           in: query
           required: true
+          description: Широта проверяемой точки WGS84
           schema:
             type: number
+            format: double
             minimum: -90
             maximum: 90
 
         - name: lon
           in: query
           required: true
+          description: Долгота проверяемой точки WGS84
           schema:
             type: number
+            format: double
             minimum: -180
             maximum: 180
 
       responses:
         "200":
-          description: Preliminary land result
+          description: >
+            Предварительная земельно-кадастровая проверка точки
           content:
             application/json:
               schema:
@@ -155,36 +208,50 @@ paths:
   /restrictions:
     get:
       operationId: checkRestrictions
-      summary: Check land restrictions around a point
+      summary: Проверить земельные ограничения вокруг точки
+      description: >
+        Предназначен для проверки ЗОУИТ, публичных сервитутов,
+        лесных и водных ограничений, ООПТ, объектов культурного
+        наследия и других пространственных ограничений.
+
+        Если конкретный источник ещё не подключён, его статус
+        должен рассматриваться как непроверенный, а не как отсутствие
+        ограничения.
       parameters:
         - name: lat
           in: query
           required: true
+          description: Широта WGS84
           schema:
             type: number
+            format: double
             minimum: -90
             maximum: 90
 
         - name: lon
           in: query
           required: true
+          description: Долгота WGS84
           schema:
             type: number
+            format: double
             minimum: -180
             maximum: 180
 
         - name: radius_m
           in: query
           required: false
+          description: Радиус проверки ограничений в метрах
           schema:
             type: number
-            default: 100
+            format: double
             minimum: 1
             maximum: 5000
+            default: 100
 
       responses:
         "200":
-          description: Restriction check result
+          description: Результат проверки ограничений
           content:
             application/json:
               schema:
@@ -194,34 +261,34 @@ paths:
   /check-contour:
     post:
       operationId: checkContour
-      summary: Check a proposed parcel contour
+      summary: Проверить предполагаемый контур нового участка
+      description: >
+        Принимает полигон в GeoJSON-подобном формате и выполняет
+        доступные проверки предполагаемой территории образования
+        земельного участка.
+
+        Используется после выбора перспективной зоны для анализа
+        конкретного будущего контура. Если необходимые официальные
+        источники не подключены или недоступны, API не должен
+        автоматически считать образование участка возможным.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-
-                type:
-                  type: string
-                  default: Polygon
-
-                coordinates:
-                  type: array
-                  items:
-                    type: array
-                    items:
-                      type: array
-                      items:
-                        type: number
-
-              required:
-                - coordinates
+              $ref: "#/components/schemas/ContourRequest"
 
       responses:
         "200":
-          description: Contour result
+          description: Результат предварительной проверки контура
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+        "400":
+          description: Некорректная геометрия полигона
           content:
             application/json:
               schema:
@@ -231,44 +298,60 @@ paths:
   /search-area:
     get:
       operationId: searchArea
-      summary: Search preliminary candidate areas
+      summary: Найти перспективные зоны для дальнейшей проверки
       description: >
-        Converts a place name to coordinates, samples candidate
-        sectors and performs preliminary infrastructure ranking.
-        It does not confirm availability under Federal Law 119-FZ.
-      parameters:
+        Выполняет предварительный поиск перспективных территорий
+        вокруг указанного населённого пункта или региона.
 
+        Анализирует инфраструктурные признаки и формирует кандидатов
+        для дальнейшего landCheck, checkRestrictions и checkContour.
+
+        Результат searchArea является географическим и инвестиционным
+        скринингом. Он НЕ подтверждает, что территория свободна,
+        может быть образована или предоставлена по 119-ФЗ.
+      parameters:
         - name: region
           in: query
           required: true
+          description: >
+            Регион поиска, например Амурская область
           schema:
             type: string
+            minLength: 2
 
         - name: center
           in: query
           required: false
+          description: >
+            Населённый пункт или ориентир внутри региона,
+            например Благовещенск
           schema:
             type: string
 
         - name: radius_km
           in: query
           required: false
+          description: Радиус предварительного поиска в километрах
           schema:
             type: number
-            default: 20
+            format: double
             minimum: 1
             maximum: 100
+            default: 20
 
         - name: purpose
           in: query
           required: false
+          description: >
+            Цель использования территории, например warehouse,
+            logistics, tourism, agriculture, housing или general
           schema:
             type: string
             default: general
 
       responses:
         "200":
-          description: Candidate-area search
+          description: Предварительно найденные территории
           content:
             application/json:
               schema:
@@ -278,92 +361,152 @@ paths:
   /candidate-score:
     post:
       operationId: candidateScore
-      summary: Calculate final candidate investment score
+      summary: Рассчитать инвестиционный рейтинг территории
       description: >
-        Calculates a weighted score up to 100 points.
-        Input values for each component must be between 0 and 100.
-        Legal availability remains subject to official verification.
+        Рассчитывает предварительный рейтинг кандидата по 100-балльной
+        системе с учётом юридической доступности, дорог, электроснабжения,
+        драйверов развития, соответствия цели, физических характеристик,
+        ликвидности и стоимости освоения.
 
+        Наличие stop_factors приводит к рейтингу STOP.
+
+        Инвестиционный рейтинг не заменяет официальную земельную
+        проверку и не подтверждает право на получение участка.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-
-              properties:
-
-                purpose:
-                  type: string
-                  default: general
-
-                legal_availability:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                roads:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                power:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                development_drivers:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                purpose_fit:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                physical_characteristics:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                liquidity:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                development_cost:
-                  type:
-                    - number
-                    - "null"
-                  minimum: 0
-                  maximum: 100
-
-                stop_factors:
-                  type: array
-                  items:
-                    type: string
-                  default: []
+              $ref: "#/components/schemas/CandidateScoreRequest"
 
       responses:
         "200":
-          description: Candidate scoring result
+          description: Рейтинг территории
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
+
+
+components:
+
+  schemas:
+
+    ContourRequest:
+      type: object
+      required:
+        - coordinates
+
+      properties:
+
+        type:
+          type: string
+          default: Polygon
+          enum:
+            - Polygon
+
+        coordinates:
+          type: array
+          description: >
+            Координаты полигона в порядке longitude, latitude.
+            Первый и последний узел кольца должны совпадать.
+          minItems: 1
+
+          items:
+            type: array
+            minItems: 4
+
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+
+              items:
+                type: number
+                format: double
+
+    CandidateScoreRequest:
+      type: object
+
+      properties:
+
+        purpose:
+          type: string
+          default: general
+          description: Цель использования территории
+
+        legal_availability:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Юридическая доступность
+
+        roads:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Автомобильная доступность
+
+        power:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Электросетевая инфраструктура
+
+        development_drivers:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Подтверждённые драйверы развития территории
+
+        purpose_fit:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Соответствие территории цели пользователя
+
+        physical_characteristics:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Физические характеристики территории
+
+        liquidity:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: Потенциальный спрос и ликвидность
+
+        development_cost:
+          type:
+            - number
+            - "null"
+          minimum: 0
+          maximum: 100
+          description: >
+            Оценка затрат на освоение: более высокий балл означает
+            более благоприятную экономику освоения
+
+        stop_factors:
+          type: array
+          description: >
+            Критические факторы, при которых кандидат должен быть
+            исключён из дальнейшего рассмотрения
+          items:
+            type: string
+          default: []

@@ -8,7 +8,7 @@ import time
 app = FastAPI(
     title="Far East Land Geo API",
     description="Geo API for searching and checking land areas in the Russian Far East",
-    version="2.1.0"
+    version="2.2.0"
 )
 
 OVERPASS_URLS = [
@@ -19,7 +19,7 @@ OVERPASS_URLS = [
 ]
 
 REQUEST_HEADERS = {
-    "User-Agent": "FarEastLandGeoAPI/2.1"
+    "User-Agent": "FarEastLandGeoAPI/2.2"
 }
 
 
@@ -56,13 +56,17 @@ def overpass_request(query):
                 url,
                 data={"data": query},
                 headers=REQUEST_HEADERS,
-                timeout=40
+                timeout=20
             )
 
             if response.status_code == 200:
                 data = response.json()
-                data["_source_url"] = url
-                return data
+
+                return {
+                    "ok": True,
+                    "source": url,
+                    "elements": data.get("elements", [])
+                }
 
             errors.append(
                 f"{url}: HTTP {response.status_code}"
@@ -73,15 +77,14 @@ def overpass_request(query):
                 f"{url}: {type(e).__name__}: {str(e)}"
             )
 
-        time.sleep(1)
+        time.sleep(0.4)
 
-    raise HTTPException(
-        status_code=502,
-        detail={
-            "message": "All Overpass API endpoints failed",
-            "errors": errors
-        }
-    )
+    return {
+        "ok": False,
+        "source": None,
+        "elements": [],
+        "errors": errors
+    }
 
 
 def element_location(element):
@@ -120,13 +123,42 @@ def normalize_element(element, lat, lon):
     }
 
 
+def run_category(query, lat, lon, limit=15):
+    response = overpass_request(query)
+
+    items = []
+
+    for element in response.get("elements", []):
+        items.append(
+            normalize_element(
+                element,
+                lat,
+                lon
+            )
+        )
+
+    items.sort(
+        key=lambda x:
+        x["distance_km"]
+        if x["distance_km"] is not None
+        else 999999
+    )
+
+    return {
+        "status": "ok" if response["ok"] else "unavailable",
+        "source": response.get("source"),
+        "items": items[:limit],
+        "errors": response.get("errors", [])
+    }
+
+
 @app.get("/")
 def root():
     return {
         "status": "ok",
         "service": "far-east-geo-api",
-        "version": "2.1.0",
-        "geo_source": "OpenStreetMap / Overpass API"
+        "version": "2.2.0",
+        "geo_source": "OpenStreetMap / multiple Overpass endpoints"
     }
 
 
@@ -135,7 +167,7 @@ def health():
     return {
         "status": "ok",
         "service": "far-east-geo-api",
-        "version": "2.1.0"
+        "version": "2.2.0"
     }
 
 
@@ -148,7 +180,10 @@ def check_point(
         "lat": lat,
         "lon": lon,
         "status": "accepted",
-        "message": "Point accepted. Use nearby-infrastructure for real geographic analysis."
+        "message": (
+            "Point accepted. "
+            "Use nearby-infrastructure for geographic analysis."
+        )
     }
 
 
@@ -156,83 +191,118 @@ def check_point(
 def nearby_infrastructure(
     lat: float = Query(..., ge=-90, le=90),
     lon: float = Query(..., ge=-180, le=180),
-    radius_km: float = Query(10, gt=0, le=50)
+    radius_km: float = Query(5, gt=0, le=25)
 ):
+
     radius_m = int(radius_km * 1000)
 
-    query = f"""
-    [out:json][timeout:25];
-    (
-      way(around:{radius_m},{lat},{lon})["highway"];
-      node(around:{radius_m},{lat},{lon})["place"];
-      way(around:{radius_m},{lat},{lon})["railway"];
-      node(around:{radius_m},{lat},{lon})["railway"="station"];
-      way(around:{radius_m},{lat},{lon})["landuse"="industrial"];
-      relation(around:{radius_m},{lat},{lon})["landuse"="industrial"];
-      node(around:{radius_m},{lat},{lon})["power"="substation"];
-      way(around:{radius_m},{lat},{lon})["power"="line"];
-      node(around:{radius_m},{lat},{lon})["power"="plant"];
-    );
-    out center tags;
+    road_query = f"""
+    [out:json][timeout:12];
+    way(around:{radius_m},{lat},{lon})
+      ["highway"~"motorway|trunk|primary|secondary|tertiary"];
+    out center tags 20;
     """
 
-    data = overpass_request(query)
+    settlement_query = f"""
+    [out:json][timeout:12];
+    node(around:{radius_m},{lat},{lon})
+      ["place"~"city|town|village|hamlet"];
+    out tags 15;
+    """
 
-    result = {
-        "roads": [],
-        "railways": [],
-        "settlements": [],
-        "industrial": [],
-        "power": []
-    }
+    railway_query = f"""
+    [out:json][timeout:12];
+    (
+      way(around:{radius_m},{lat},{lon})
+        ["railway"="rail"];
+      node(around:{radius_m},{lat},{lon})
+        ["railway"="station"];
+    );
+    out center tags 15;
+    """
 
-    for element in data.get("elements", []):
-        tags = element.get("tags", {})
+    industrial_query = f"""
+    [out:json][timeout:12];
+    (
+      way(around:{radius_m},{lat},{lon})
+        ["landuse"="industrial"];
+      relation(around:{radius_m},{lat},{lon})
+        ["landuse"="industrial"];
+    );
+    out center tags 15;
+    """
 
-        item = normalize_element(
-            element,
-            lat,
-            lon
-        )
+    power_query = f"""
+    [out:json][timeout:12];
+    (
+      node(around:{radius_m},{lat},{lon})
+        ["power"="substation"];
+      way(around:{radius_m},{lat},{lon})
+        ["power"="line"];
+      node(around:{radius_m},{lat},{lon})
+        ["power"="plant"];
+    );
+    out center tags 15;
+    """
 
-        if "highway" in tags:
-            result["roads"].append(item)
+    roads = run_category(
+        road_query,
+        lat,
+        lon
+    )
 
-        elif "place" in tags:
-            result["settlements"].append(item)
+    settlements = run_category(
+        settlement_query,
+        lat,
+        lon
+    )
 
-        elif "railway" in tags:
-            result["railways"].append(item)
+    railways = run_category(
+        railway_query,
+        lat,
+        lon
+    )
 
-        elif tags.get("landuse") == "industrial":
-            result["industrial"].append(item)
+    industrial = run_category(
+        industrial_query,
+        lat,
+        lon
+    )
 
-        elif "power" in tags:
-            result["power"].append(item)
+    power = run_category(
+        power_query,
+        lat,
+        lon
+    )
 
-    for category in result:
-        result[category].sort(
-            key=lambda x: (
-                x["distance_km"]
-                if x["distance_km"] is not None
-                else 999999
-            )
-        )
-
-        result[category] = result[category][:20]
+    successful_categories = sum([
+        roads["status"] == "ok",
+        settlements["status"] == "ok",
+        railways["status"] == "ok",
+        industrial["status"] == "ok",
+        power["status"] == "ok"
+    ])
 
     return {
-        "status": "ok",
-        "source": "OpenStreetMap / Overpass API",
-        "source_endpoint": data.get("_source_url"),
+        "status": (
+            "ok"
+            if successful_categories > 0
+            else "external_sources_unavailable"
+        ),
         "lat": lat,
         "lon": lon,
         "radius_km": radius_km,
-        **result,
+        "successful_categories": successful_categories,
+        "roads": roads,
+        "settlements": settlements,
+        "railways": railways,
+        "industrial": industrial,
+        "power": power,
         "warning": (
-            "OpenStreetMap data is preliminary and does not confirm "
-            "legal availability, cadastral boundaries, ZOUIT, "
-            "ownership, public servitudes or eligibility under Federal Law 119-FZ."
+            "OpenStreetMap data is preliminary. "
+            "It does not confirm legal availability, "
+            "cadastral boundaries, ZOUIT, ownership, "
+            "public servitudes or eligibility under Federal Law 119-FZ."
         )
     }
 
@@ -252,8 +322,8 @@ def search_area(
         "status": "preliminary",
         "candidates": [],
         "message": (
-            "Automatic candidate generation will be added after "
-            "the infrastructure and cadastral modules are validated."
+            "Automatic candidate generation will be added "
+            "after infrastructure and cadastral modules are validated."
         )
     }
 
@@ -278,6 +348,7 @@ def check_contour(data: ContourRequest):
         ],
         "message": (
             "Contour geometry accepted. "
-            "Do not treat this response as confirmation that the land is available."
+            "Do not treat this response as confirmation "
+            "that the land is available."
         )
     }

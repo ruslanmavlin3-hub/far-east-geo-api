@@ -3,10 +3,10 @@ openapi: 3.1.0
 info:
   title: Far East Land Geo API
   description: >
-    API for geographic analysis of land areas in the Russian Far East,
-    including point checks, infrastructure searches, candidate-area searches,
-    and preliminary contour checks.
-  version: 1.0.0
+    Geographic, infrastructure, cadastral-preparation and investment
+    analysis API for searching and checking territories under the
+    Far East / Arctic hectare workflow.
+  version: 3.0.0
 
 servers:
   - url: https://far-east-geo-api.onrender.com
@@ -16,97 +16,354 @@ paths:
   /health:
     get:
       operationId: healthCheck
-      summary: Check Geo API status
+      summary: Check Geo API health
       responses:
         "200":
-          description: API is running
+          description: Service status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
   /check-point:
     get:
       operationId: checkPoint
-      summary: Check a geographic point
+      summary: Validate a geographic point
       parameters:
         - name: lat
           in: query
           required: true
           schema:
             type: number
+            minimum: -90
+            maximum: 90
+
         - name: lon
           in: query
           required: true
           schema:
             type: number
+            minimum: -180
+            maximum: 180
+
       responses:
         "200":
-          description: Geographic point information
+          description: Point result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /geocode:
+    get:
+      operationId: geocodePlace
+      summary: Convert a Russian place name to coordinates
+      parameters:
+        - name: place
+          in: query
+          required: true
+          schema:
+            type: string
+
+      responses:
+        "200":
+          description: Geocoding result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
   /nearby-infrastructure:
     get:
       operationId: nearbyInfrastructure
-      summary: Find infrastructure near a geographic point
+      summary: Find infrastructure near coordinates
+      description: >
+        Searches nearby major roads, settlements, railways,
+        industrial areas and power infrastructure.
       parameters:
         - name: lat
           in: query
           required: true
           schema:
             type: number
+            minimum: -90
+            maximum: 90
+
         - name: lon
           in: query
           required: true
           schema:
             type: number
+            minimum: -180
+            maximum: 180
+
         - name: radius_km
           in: query
           required: false
           schema:
             type: number
-            default: 10
+            default: 5
+            minimum: 0.2
+            maximum: 25
+
       responses:
         "200":
-          description: Nearby infrastructure
+          description: Infrastructure result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
-  /search-area:
+  /land-check:
     get:
-      operationId: searchArea
-      summary: Search for candidate land areas
+      operationId: landCheck
+      summary: Preliminary legal and cadastral land check
+      description: >
+        Returns the permanent structure for cadastral, NSPD,
+        FIS 119-FZ, ZOUIT, public servitude, forest, water,
+        protected-area, heritage and zoning checks.
       parameters:
-        - name: region
+        - name: lat
           in: query
           required: true
           schema:
-            type: string
-        - name: center
+            type: number
+            minimum: -90
+            maximum: 90
+
+        - name: lon
           in: query
-          required: false
+          required: true
           schema:
-            type: string
-        - name: radius_km
+            type: number
+            minimum: -180
+            maximum: 180
+
+      responses:
+        "200":
+          description: Preliminary land result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /restrictions:
+    get:
+      operationId: checkRestrictions
+      summary: Check land restrictions around a point
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -90
+            maximum: 90
+
+        - name: lon
+          in: query
+          required: true
+          schema:
+            type: number
+            minimum: -180
+            maximum: 180
+
+        - name: radius_m
           in: query
           required: false
           schema:
             type: number
-            default: 20
-        - name: purpose
-          in: query
-          required: false
-          schema:
-            type: string
-            default: warehouse
+            default: 100
+            minimum: 1
+            maximum: 5000
+
       responses:
         "200":
-          description: Candidate search areas
+          description: Restriction check result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
 
   /check-contour:
     post:
       operationId: checkContour
-      summary: Check a proposed land parcel contour
+      summary: Check a proposed parcel contour
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              additionalProperties: true
+              properties:
+
+                type:
+                  type: string
+                  default: Polygon
+
+                coordinates:
+                  type: array
+                  items:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: number
+
+              required:
+                - coordinates
+
       responses:
         "200":
-          description: Preliminary contour check result
+          description: Contour result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /search-area:
+    get:
+      operationId: searchArea
+      summary: Search preliminary candidate areas
+      description: >
+        Converts a place name to coordinates, samples candidate
+        sectors and performs preliminary infrastructure ranking.
+        It does not confirm availability under Federal Law 119-FZ.
+      parameters:
+
+        - name: region
+          in: query
+          required: true
+          schema:
+            type: string
+
+        - name: center
+          in: query
+          required: false
+          schema:
+            type: string
+
+        - name: radius_km
+          in: query
+          required: false
+          schema:
+            type: number
+            default: 20
+            minimum: 1
+            maximum: 100
+
+        - name: purpose
+          in: query
+          required: false
+          schema:
+            type: string
+            default: general
+
+      responses:
+        "200":
+          description: Candidate-area search
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /candidate-score:
+    post:
+      operationId: candidateScore
+      summary: Calculate final candidate investment score
+      description: >
+        Calculates a weighted score up to 100 points.
+        Input values for each component must be between 0 and 100.
+        Legal availability remains subject to official verification.
+
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+
+              properties:
+
+                purpose:
+                  type: string
+                  default: general
+
+                legal_availability:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                roads:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                power:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                development_drivers:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                purpose_fit:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                physical_characteristics:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                liquidity:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                development_cost:
+                  type:
+                    - number
+                    - "null"
+                  minimum: 0
+                  maximum: 100
+
+                stop_factors:
+                  type: array
+                  items:
+                    type: string
+                  default: []
+
+      responses:
+        "200":
+          description: Candidate scoring result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
